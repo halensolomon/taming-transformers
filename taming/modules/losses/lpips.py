@@ -44,6 +44,8 @@ class LPIPS(nn.Module):
         feats0, feats1, diffs = {}, {}, {}
         lins = [self.lin0, self.lin1, self.lin2, self.lin3, self.lin4]
         for kk in range(len(self.chns)):
+            #print(kk, len(self.chns))
+            #print(outs0[kk].shape, outs0[kk])
             feats0[kk], feats1[kk] = normalize_tensor(outs0[kk]), normalize_tensor(outs1[kk])
             diffs[kk] = (feats0[kk] - feats1[kk]) ** 2
 
@@ -76,13 +78,13 @@ class NetLinLayer(nn.Module):
 class vgg16(torch.nn.Module):
     def __init__(self, requires_grad=False, pretrained=True):
         super(vgg16, self).__init__()
-        vgg_pretrained_features = models.vgg16(pretrained=pretrained).features
+        vgg_pretrained_features = models.vgg16(weights='DEFAULT').features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()
         self.slice4 = torch.nn.Sequential()
         self.slice5 = torch.nn.Sequential()
-        self.N_slices = 5
+        self.N_slices = 5 # Each slice has 5 layers
         for x in range(4):
             self.slice1.add_module(str(x), vgg_pretrained_features[x])
         for x in range(4, 9):
@@ -98,6 +100,9 @@ class vgg16(torch.nn.Module):
                 param.requires_grad = False
 
     def forward(self, X):
+        h = nn.ReLU
+        
+        
         h = self.slice1(X)
         h_relu1_2 = h
         h = self.slice2(h)
@@ -114,6 +119,7 @@ class vgg16(torch.nn.Module):
 
 
 def normalize_tensor(x,eps=1e-10):
+    #print(x.shape)
     norm_factor = torch.sqrt(torch.sum(x**2,dim=1,keepdim=True))
     return x/(norm_factor+eps)
 

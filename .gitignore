@@ -1,0 +1,7 @@
+*.pyc
+*.ckpt
+*.pt
+*.yaml
+events.out.tfevents.*
+*.csv
+*.experiment

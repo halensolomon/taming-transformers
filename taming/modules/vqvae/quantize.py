@@ -219,7 +219,7 @@ class VectorQuantizer2(nn.Module):
     # backwards compatibility we use the buggy version by default, but you can
     # specify legacy=False to fix it.
     def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
-                 sane_index_shape=False, legacy=True):
+                 sane_index_shape=False, legacy=False):
         super().__init__()
         self.n_e = n_e
         self.e_dim = e_dim
@@ -274,15 +274,18 @@ class VectorQuantizer2(nn.Module):
         assert return_logits==False, "Only for interface compatible with Gumbel"
         # reshape z -> (batch, height, width, channel) and flatten
         z = rearrange(z, 'b c h w -> b h w c').contiguous()
+        #print(z, "reshape z -> (batch, height, width, channel) and flatten")
         z_flattened = z.view(-1, self.e_dim)
+        #print(z_flattened, "z_flattened = z.view(-1, self.e_dim)")
         # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
 
         d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
             torch.sum(self.embedding.weight**2, dim=1) - 2 * \
             torch.einsum('bd,dn->bn', z_flattened, rearrange(self.embedding.weight, 'n d -> d n'))
-
+        #print(d, "d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + torch.sum(self.embedding.weight**2, dim=1) - 2 * torch.einsum('bd,dn->bn', z_flattened, rearrange(self.embedding.weight, 'n d -> d n'))")
         min_encoding_indices = torch.argmin(d, dim=1)
         z_q = self.embedding(min_encoding_indices).view(z.shape)
+        
         perplexity = None
         min_encodings = None
 
@@ -290,12 +293,14 @@ class VectorQuantizer2(nn.Module):
         if not self.legacy:
             loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
                    torch.mean((z_q - z.detach()) ** 2)
+            #print(loss, "loss = self.beta * torch.mean((z_q.detach()-z)**2) + torch.mean((z_q - z.detach()) ** 2)")
         else:
             loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
                    torch.mean((z_q - z.detach()) ** 2)
 
         # preserve gradients
         z_q = z + (z_q - z).detach()
+        #print(z_q, "preserve gradients")
 
         # reshape back to match original input shape
         z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()
@@ -308,12 +313,13 @@ class VectorQuantizer2(nn.Module):
         if self.sane_index_shape:
             min_encoding_indices = min_encoding_indices.reshape(
                 z_q.shape[0], z_q.shape[2], z_q.shape[3])
-
+        
         return z_q, loss, (perplexity, min_encodings, min_encoding_indices)
 
     def get_codebook_entry(self, indices, shape):
         # shape specifying (batch, height, width, channel)
         if self.remap is not None:
+            print(remap, "remap")
             indices = indices.reshape(shape[0],-1) # add batch axis
             indices = self.unmap_to_all(indices)
             indices = indices.reshape(-1) # flatten again

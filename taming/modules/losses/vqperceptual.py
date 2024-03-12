@@ -76,9 +76,11 @@ class VQLPIPSWithDiscriminator(nn.Module):
     def forward(self, codebook_loss, inputs, reconstructions, optimizer_idx,
                 global_step, last_layer=None, cond=None, split="train"):
         rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
+
         if self.perceptual_weight > 0:
             p_loss = self.perceptual_loss(inputs.contiguous(), reconstructions.contiguous())
             rec_loss = rec_loss + self.perceptual_weight * p_loss
+
         else:
             p_loss = torch.tensor([0.0])
 
@@ -115,7 +117,7 @@ class VQLPIPSWithDiscriminator(nn.Module):
                    "{}/disc_factor".format(split): torch.tensor(disc_factor),
                    "{}/g_loss".format(split): g_loss.detach().mean(),
                    }
-            return loss, log
+            return loss, log 
 
         if optimizer_idx == 1:
             # second pass for discriminator update

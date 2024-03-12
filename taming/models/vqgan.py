@@ -53,42 +53,63 @@ class VQModel(pl.LightningModule):
         print(f"Restored from {path}")
 
     def encode(self, x):
+        #print("encode")
+        #print("encode x", x.shape, x.dtype)
         h = self.encoder(x)
+        #print("encode h", h.shape, h.dtype)
         h = self.quant_conv(h)
+        #print("encode h", h.shape, h.dtype)
         quant, emb_loss, info = self.quantize(h)
+        #print(quant, emb_loss, "quant, emb_loss")
         return quant, emb_loss, info
 
     def decode(self, quant):
+        #print("decode0", torch.isnan(quant))
         quant = self.post_quant_conv(quant)
+        #print("decode1", torch.isnan(quant))
         dec = self.decoder(quant)
+        #print("decode2", torch.isnan(dec))
         return dec
 
     def decode_code(self, code_b):
         quant_b = self.quantize.embed_code(code_b)
         dec = self.decode(quant_b)
+        #print("decode_code", torch.isnan(dec))
         return dec
 
     def forward(self, input):
         quant, diff, _ = self.encode(input)
+       #print("forward", torch.isnan(quant), torch.isnan(diff))
         dec = self.decode(quant)
         return dec, diff
 
     def get_input(self, batch, k):
         x = batch[k]
+        #print(x.shape, "shape of input batch")
+        if x.is_sparse:
+            x = x.to_dense()
         if len(x.shape) == 3:
-            x = x[..., None]
-        x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
+            x = x.unsqueeze(1)
+            x = x.to(memory_format=torch.contiguous_format)
+        else:
+            #print(x.shape)
+            x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
+            #print(x[:,0,:,:] == x[:,1,:,:])
+            #x = torch.tile(x[:,0,:,:], (1,3,1,1))
+            #x = x.unsqueeze(1)  # Don't know why there are 256 repeating channels, but i'm just gonna ignore that for now.
+        #x = x.squeeze(1).unsqueeze(1)
         return x.float()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+        print("VQMODEL TRAINING")
         x = self.get_input(batch, self.image_key)
+        #print('training step', torch.isnan(x))
         xrec, qloss = self(x)
 
         if optimizer_idx == 0:
             # autoencode
             aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
-
             self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
             self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
             return aeloss
@@ -102,20 +123,27 @@ class VQModel(pl.LightningModule):
             return discloss
 
     def validation_step(self, batch, batch_idx):
+        #print("VQMODEL VALIDATION")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
+        #print(xrec, qloss, "xrec, qloss")
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
+        #print(aeloss, log_dict_ae, "aeloss, log_dict_ae")
 
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
+        #print(discloss, log_dict_disc, "discloss, log_dict_disc")
         rec_loss = log_dict_ae["val/rec_loss"]
+        #print(rec_loss, "rec_loss")
         self.log("val/rec_loss", rec_loss,
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
         self.log("val/aeloss", aeloss,
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
+        #print(aeloss, "aeloss")
         self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
+
         return self.log_dict
 
     def configure_optimizers(self):
@@ -172,6 +200,7 @@ class VQSegmentationModel(VQModel):
         return opt_ae
 
     def training_step(self, batch, batch_idx):
+        print("VQSEGMENTATIONMODEL TRAINING")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, split="train")
@@ -179,6 +208,7 @@ class VQSegmentationModel(VQModel):
         return aeloss
 
     def validation_step(self, batch, batch_idx):
+        print("VQSEGMENTATIONMODEL VALIDATION")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, split="val")
@@ -224,6 +254,7 @@ class VQNoDiscModel(VQModel):
                          colorize_nlabels=colorize_nlabels)
 
     def training_step(self, batch, batch_idx):
+        print("VQNODISCMODEL TRAINING")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         # autoencode
@@ -235,6 +266,7 @@ class VQNoDiscModel(VQModel):
         return output
 
     def validation_step(self, batch, batch_idx):
+        print("VQNODISCMODEL VALIDATION")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, self.global_step, split="val")
@@ -311,6 +343,7 @@ class GumbelVQ(VQModel):
         raise NotImplementedError
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+        print("GUMBELVQ TRAINING")
         self.temperature_scheduling()
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
@@ -332,6 +365,7 @@ class GumbelVQ(VQModel):
             return discloss
 
     def validation_step(self, batch, batch_idx):
+
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x, return_pred_indices=True)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
@@ -339,7 +373,9 @@ class GumbelVQ(VQModel):
 
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
+
         rec_loss = log_dict_ae["val/rec_loss"]
+        
         self.log("val/rec_loss", rec_loss,
                  prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
         self.log("val/aeloss", aeloss,

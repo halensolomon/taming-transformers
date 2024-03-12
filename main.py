@@ -10,9 +10,14 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
+import os
+from pytorch_lightning.loggers import TensorBoardLogger
 
 from taming.data.utils import custom_collate
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ['PL_TORCH_DISTRIBUTED_BACKEND'] = "gloo" 
+torch.cuda.empty_cache()
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -221,6 +226,7 @@ class ImageLogger(Callback):
         self.batch_freq = batch_frequency
         self.max_images = max_images
         self.logger_log_images = {
+            pl.loggers.TensorBoardLogger: self._tensorboard,
             pl.loggers.WandbLogger: self._wandb,
             pl.loggers.TestTubeLogger: self._testtube,
         }
@@ -248,6 +254,16 @@ class ImageLogger(Callback):
             pl_module.logger.experiment.add_image(
                 tag, grid,
                 global_step=pl_module.global_step)
+    
+    def _tensorboard(self, pl_module, images, batch_idx, split):
+        for k in images:
+            grid = torchvision.utils.make_grid(images[k])
+            grid = (grid+1.0)/2.0 # -1,1 -> 0,1; c,h,w
+
+            tag = f"{split}/{k}"
+            pl_module.logger.experiment.add_image(
+                tag, grid,
+                global_step=pl_module.global_step)
 
     @rank_zero_only
     def log_local(self, save_dir, split, images,
@@ -258,8 +274,8 @@ class ImageLogger(Callback):
 
             grid = (grid+1.0)/2.0 # -1,1 -> 0,1; c,h,w
             grid = grid.transpose(0,1).transpose(1,2).squeeze(-1)
-            grid = grid.numpy()
-            grid = (grid*255).astype(np.uint8)
+            #grid = grid.numpy()
+            grid = (grid*255)
             filename = "{}_gs-{:06}_e-{:06}_b-{:06}.png".format(
                 k,
                 global_step,
@@ -267,7 +283,8 @@ class ImageLogger(Callback):
                 batch_idx)
             path = os.path.join(root, filename)
             os.makedirs(os.path.split(path)[0], exist_ok=True)
-            Image.fromarray(grid).save(path)
+            torch.save(grid, path + ".pt")
+            #Image.fromarray(grid).save(path)
 
     def log_img(self, pl_module, batch, batch_idx, split="train"):
         if (self.check_frequency(batch_idx) and  # batch_idx % self.batch_freq == 0
@@ -296,7 +313,7 @@ class ImageLogger(Callback):
 
             logger_log_images = self.logger_log_images.get(logger, lambda *args, **kwargs: None)
             logger_log_images(pl_module, images, pl_module.global_step, split)
-
+            
             if is_train:
                 pl_module.train()
 
@@ -419,7 +436,9 @@ if __name__ == "__main__":
         # merge trainer cli with config
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
         # default to ddp
-        trainer_config["distributed_backend"] = "ddp"
+        #trainer_config["distributed_backend"] = "ddp"
+        trainer_config["distributed_backend"] = "dp" # For windows
+
         for k in nondefault_trainer_args(opt):
             trainer_config[k] = getattr(opt, k)
         if not "gpus" in trainer_config:
@@ -460,8 +479,14 @@ if __name__ == "__main__":
                     "save_dir": logdir,
                 }
             },
-        }
-        default_logger_cfg = default_logger_cfgs["testtube"]
+            "tensorboard": {
+                "target": "pytorch_lightning.loggers.TensorBoardLogger",
+                "params": {
+                    "name": "tensorboard",
+                    "save_dir": logdir,
+                },} 
+            }
+        default_logger_cfg = default_logger_cfgs["tensorboard"]
         logger_cfg = lightning_config.logger or OmegaConf.create()
         logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
         trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
@@ -474,7 +499,7 @@ if __name__ == "__main__":
                 "dirpath": ckptdir,
                 "filename": "{epoch:06}",
                 "verbose": True,
-                "save_last": True,
+                "save_last": None,
             }
         }
         if hasattr(model, "monitor"):
@@ -555,13 +580,16 @@ if __name__ == "__main__":
             if trainer.global_rank == 0:
                 import pudb; pudb.set_trace()
 
-        import signal
-        signal.signal(signal.SIGUSR1, melk)
-        signal.signal(signal.SIGUSR2, divein)
+        #import signal
+        # signal.signal(signal.SIGUSR1, melk) # for Windows
+        # signal.signal(signal.SIGUSR2, divein) # for Windows
 
         # run
         if opt.train:
             try:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.memory_summary()
                 trainer.fit(model, data)
             except Exception:
                 melk()
