@@ -63,7 +63,7 @@ class ScalingLayer(nn.Module):
         self.register_buffer('scale', torch.Tensor([.458, .448, .450])[None, :, None, None])
 
     def forward(self, inp):
-        return (inp - self.shift) / self.scale
+        return (inp - self.shift.to(inp.device)) / self.scale.to(inp.device)
 
 
 class NetLinLayer(nn.Module):

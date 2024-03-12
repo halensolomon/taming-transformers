@@ -18,6 +18,7 @@ from taming.data.utils import custom_collate
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['PL_TORCH_DISTRIBUTED_BACKEND'] = "gloo" 
 torch.cuda.empty_cache()
+torch.set_default_device('cuda')
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -168,16 +169,16 @@ class DataModuleFromConfig(pl.LightningDataModule):
 
     def _train_dataloader(self):
         return DataLoader(self.datasets["train"], batch_size=self.batch_size,
-                          num_workers=self.num_workers, shuffle=True, collate_fn=custom_collate)
+                          num_workers=self.num_workers, shuffle=False, collate_fn=custom_collate)
 
     def _val_dataloader(self):
         return DataLoader(self.datasets["validation"],
                           batch_size=self.batch_size,
-                          num_workers=self.num_workers, collate_fn=custom_collate)
+                          num_workers=self.num_workers, collate_fn=custom_collate, shuffle = False)
 
     def _test_dataloader(self):
         return DataLoader(self.datasets["test"], batch_size=self.batch_size,
-                          num_workers=self.num_workers, collate_fn=custom_collate)
+                          num_workers=self.num_workers, collate_fn=custom_collate, shuffle = False)
 
 
 class SetupCallback(Callback):
@@ -438,6 +439,9 @@ if __name__ == "__main__":
         # default to ddp
         #trainer_config["distributed_backend"] = "ddp"
         trainer_config["distributed_backend"] = "dp" # For windows
+        trainer_config["devices"] = "auto"
+        trainer_config["max_epochs"] = 100
+        trainer_config["strategy"] = "auto"
 
         for k in nondefault_trainer_args(opt):
             trainer_config[k] = getattr(opt, k)
@@ -543,9 +547,9 @@ if __name__ == "__main__":
         }
         callbacks_cfg = lightning_config.callbacks or OmegaConf.create()
         callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, callbacks_cfg)
-        trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
-
+        trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg] # For windows
         trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+        trainer = Trainer(log_every_n_steps=1)
 
         # data
         data = instantiate_from_config(config.data)
@@ -557,8 +561,9 @@ if __name__ == "__main__":
 
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
+        ngpu = 1
         if not cpu:
-            ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
+            ngpu = torch.cuda.device_count()
         else:
             ngpu = 1
         accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches or 1

@@ -411,6 +411,7 @@ class Encoder(nn.Module):
         temb = None
 
         # downsampling
+        self.conv_in.to(x.device)
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -512,6 +513,7 @@ class Decoder(nn.Module):
         temb = None
 
         # z to block_in
+        self.conv_in.to(z.device)
         h = self.conv_in(z)
 
         # middle
@@ -534,6 +536,7 @@ class Decoder(nn.Module):
 
         h = self.norm_out(h)
         h = nonlinearity(h)
+        self.conv_out.to(h.device)
         h = self.conv_out(h)
         return h
 
@@ -656,7 +659,8 @@ class VUNet(nn.Module):
         else:
             temb = None
 
-        # downsampling
+        self.conv_in.to(x.device)
+            
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
@@ -688,6 +692,7 @@ class VUNet(nn.Module):
         # end
         h = self.norm_out(h)
         h = nonlinearity(h)
+        self.conv_out.to(h.device)
         h = self.conv_out(h)
         return h
 
@@ -724,6 +729,7 @@ class SimpleDecoder(nn.Module):
 
         h = self.norm_out(x)
         h = nonlinearity(h)
+        self.conv_out.to(h.device)
         x = self.conv_out(h)
         return x
 

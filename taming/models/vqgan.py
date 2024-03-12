@@ -101,7 +101,7 @@ class VQModel(pl.LightningModule):
         return x.float()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        print("VQMODEL TRAINING")
+        #print("VQMODEL TRAINING")
         x = self.get_input(batch, self.image_key)
         #print('training step', torch.isnan(x))
         xrec, qloss = self(x)
@@ -164,7 +164,7 @@ class VQModel(pl.LightningModule):
     def log_images(self, batch, **kwargs):
         log = dict()
         x = self.get_input(batch, self.image_key)
-        x = x.to(self.device)
+        x = x.type_as(self.device)
         xrec, _ = self(x)
         if x.shape[1] > 3:
             # colorize with random projection
@@ -200,7 +200,7 @@ class VQSegmentationModel(VQModel):
         return opt_ae
 
     def training_step(self, batch, batch_idx):
-        print("VQSEGMENTATIONMODEL TRAINING")
+        #print("VQSEGMENTATIONMODEL TRAINING")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, split="train")
@@ -208,7 +208,7 @@ class VQSegmentationModel(VQModel):
         return aeloss
 
     def validation_step(self, batch, batch_idx):
-        print("VQSEGMENTATIONMODEL VALIDATION")
+        #print("VQSEGMENTATIONMODEL VALIDATION")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, split="val")
@@ -254,7 +254,7 @@ class VQNoDiscModel(VQModel):
                          colorize_nlabels=colorize_nlabels)
 
     def training_step(self, batch, batch_idx):
-        print("VQNODISCMODEL TRAINING")
+        #print("VQNODISCMODEL TRAINING")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         # autoencode
@@ -266,7 +266,7 @@ class VQNoDiscModel(VQModel):
         return output
 
     def validation_step(self, batch, batch_idx):
-        print("VQNODISCMODEL VALIDATION")
+        #print("VQNODISCMODEL VALIDATION")
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, self.global_step, split="val")
@@ -343,7 +343,7 @@ class GumbelVQ(VQModel):
         raise NotImplementedError
 
     def training_step(self, batch, batch_idx, optimizer_idx):
-        print("GUMBELVQ TRAINING")
+        #print("GUMBELVQ TRAINING")
         self.temperature_scheduling()
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
