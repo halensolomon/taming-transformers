@@ -5,3 +5,5 @@
 events.out.tfevents.*
 *.csv
 *.experiment
+*.txt
+*.pth
